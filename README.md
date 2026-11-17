@@ -37,7 +37,7 @@ README.md
 ## Cómo desplegar
 
 ```bash
-git clone https://github.com/PierroSotelo/proyecto-s12-k8s.git
+git clone https://github.com/PieroSotelo/proyecto-s12-k8s.git
 cd proyecto-s12-k8s
 kubectl apply -f k8s/
 kubectl get pods -n practica-s12
