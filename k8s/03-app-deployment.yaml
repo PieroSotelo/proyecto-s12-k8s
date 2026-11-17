@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: practica-s12
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: db }
+  template:
+    metadata:
+      labels: { app: db }
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom: { secretKeyRef: { name: db-secret, key: DB_USER } }
+        - name: POSTGRES_PASSWORD
+          valueFrom: { secretKeyRef: { name: db-secret, key: DB_PASSWORD } }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+      - { name: data, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service
+  namespace: practica-s12
+spec:
+  selector: { app: db }
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: practica-s12
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      initContainers:
+      - name: wait-for-db
+        image: busybox:1.36
+        command: ['sh','-c','until nc -z $DB_HOST $DB_PORT; do echo "esperando a $DB_HOST:$DB_PORT"; sleep 3; done']
+        envFrom:
+        - configMapRef: { name: app-config }
+      containers:
+      - name: app
+        image: nginxinc/nginx-unprivileged:stable
+        command: ['sh','-c','[ -n "$DB_PASSWORD" ] || { echo "ERROR: DB_PASSWORD no definida"; exit 1; }; exec nginx -g "daemon off;"']
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef: { name: app-config }
+        - secretRef: { name: db-secret }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - { name: tmp, mountPath: /tmp }
+        - { name: cache, mountPath: /var/cache/nginx }
+        livenessProbe:
+          httpGet: { path: /, port: 8080 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet: { path: /, port: 8080 }
+          initialDelaySeconds: 3
+          periodSeconds: 5
+      volumes:
+      - { name: tmp, emptyDir: {} }
+      - { name: cache, emptyDir: {} }
